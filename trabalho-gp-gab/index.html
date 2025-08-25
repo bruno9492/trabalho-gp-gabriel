@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Math Class — Frequência Escolar</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Math Class</h1>
+    <p class="subtitle">Cálculo de frequência escolar por aluno, com CGM e porcentagens</p>
+  </header>
+
+  <main class="container">
+    <section class="panel">
+      <h2>Configurações</h2>
+      <form id="configForm" class="grid">
+        <label class="field">
+          <span>Limite mínimo de frequência (%)</span>
+          <input type="number" id="limiteFreq" min="0" max="100" step="1" value="75" />
+        </label>
+        <button type="submit" class="btn primary">Salvar limite</button>
+      </form>
+      <p class="hint">O limite define a porcentagem mínima de presença para “Em dia”. Padrão: 75%.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Novo aluno</h2>
+      <form id="alunoForm" class="grid">
+        <input type="hidden" id="editingId" />
+        <label class="field">
+          <span>CGM</span>
+          <input type="text" id="cgm" placeholder="Ex.: 1234567" required />
+        </label>
+        <label class="field">
+          <span>Nome</span>
+          <input type="text" id="nome" placeholder="Nome do aluno" required />
+        </label>
+        <label class="field">
+          <span>Aulas dadas</span>
+          <input type="number" id="aulas" min="0" step="1" value="0" required />
+        </label>
+        <label class="field">
+          <span>Faltas</span>
+          <input type="number" id="faltas" min="0" step="1" value="0" required />
+        </label>
+        <div class="actions">
+          <button type="submit" class="btn primary" id="submitBtn">Adicionar aluno</button>
+          <button type="button" class="btn" id="cancelEdit" hidden>Cancelar edição</button>
+        </div>
+      </form>
+      <p class="hint">As faltas não podem exceder as aulas dadas. O CGM deve ser único.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Lista de alunos</h2>
+      <div class="toolbar">
+        <label class="field search">
+          <span>Buscar por nome ou CGM</span>
+          <input type="search" id="busca" placeholder="Digite para filtrar..." />
+        </label>
+        <div class="spacer"></div>
+        <button class="btn" id="exportCsv">Exportar CSV</button>
+        <button class="btn danger" id="clearAll">Limpar tudo</button>
+      </div>
+
+      <div class="table-wrap">
+        <table id="tabela">
+          <thead>
+            <tr>
+              <th>CGM</th>
+              <th>Nome</th>
+              <th>Aulas</th>
+              <th>Faltas</th>
+              <th>Presenças</th>
+              <th>% Presenças</th>
+              <th>% Faltas</th>
+              <th>Situação</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <!-- Linhas geradas via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <small>Math Class — ferramenta simples para cálculo de frequência escolar (cliente local, sem servidor)</small>
+  </footer>
+
+  <script>
+    // ====== Utilidades ======
+    const $ = (sel) => document.querySelector(sel);
+    const el = (tag, opts = {}) => Object.assign(document.createElement(tag), opts);
+
+    const storage = {
+      get(key, fallback) {
+        try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+      },
+      set(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+    };
+
+    const fmtPct = (v) => isFinite(v) ? v.toFixed(1) + "%" : "—";
+
+    // ====== Estado ======
+    let alunos = storage.get("mathClass:alunos", []);
+    let limite = storage.get("mathClass:limite", 75);
+
+    // ====== Inicialização ======
+    $("#limiteFreq").value = limite;
+
+    // ====== Cálculos ======
+    function calcular(aluno) {
+      const aulas = Number(aluno.aulas);
+      const faltas = Number(aluno.faltas);
+      const presencas = Math.max(0, aulas - faltas);
+      const pctPresenca = aulas > 0 ? (presencas / aulas) * 100 : 0;
+      const pctFaltas = aulas > 0 ? (faltas / aulas) * 100 : 0;
+      const situacao = pctPresenca >= limite ? "Em dia" : "Abaixo do mínimo";
+      return { presencas, pctPresenca, pctFaltas, situacao };
+    }
+
+    // ====== Renderização ======
+    function renderTabela(filtro = "") {
+      const tbody = $("#tbody");
+      tbody.innerHTML = "";
+      const f = filtro.trim().toLowerCase();
+
+      alunos
+        .filter(a => !f || a.cgm.toLowerCase().includes(f) || a.nome.toLowerCase().includes(f))
+        .forEach(a => {
+          const c = calcular(a);
+          const tr = el("tr");
+          tr.className = c.pctPresenca >= limite ? "ok" : "alerta";
+
+          tr.append(
+            td(a.cgm),
+            td(a.nome),
+            td(a.aulas),
+            td(a.faltas),
+            td(c.presencas),
+            td(fmtPct(c.pctPresenca)),
+            td(fmtPct(c.pctFaltas)),
+            tdStatus(c.situacao),
+            tdAcoes(a.id)
+          );
+          tbody.appendChild(tr);
+        });
+    }
+
+    function td(text) {
+      return el("td", { textContent: text });
+    }
+
+    function tdStatus(situacao) {
+      const tdEl = el("td");
+      const badge = el("span", { textContent: situacao });
+      badge.className = "badge " + (situacao === "Em dia" ? "good" : "bad");
+      tdEl.appendChild(badge);
+      return tdEl;
+    }
+
+    function tdAcoes(id) {
+      const tdEl = el("td");
+      const edit = el("button", { className: "btn small", textContent: "Editar" });
+      const del = el("button", { className: "btn small danger", textContent: "Excluir" });
+
+      edit.addEventListener("click", () => startEdit(id));
+      del.addEventListener("click", () => removeAluno(id));
+      tdEl.append(edit, del);
+      return tdEl;
+    }
+
+    // ====== CRUD ======
+    function upsertAluno(data) {
+      const idx = alunos.findIndex(x => x.id === data.id || x.cgm === data.cgm);
+      if (idx >= 0) {
+        // Se for edição por ID, mantém CGM uniqueness
+        const byId = alunos.findIndex(x => x.id === data.id);
+        if (byId >= 0) {
+          // Garantir que nenhum outro item use o mesmo CGM
+          const conflict = alunos.some((x, i) => i !== byId && x.cgm === data.cgm);
+          if (conflict) throw new Error("Já existe um aluno com este CGM.");
+          alunos[byId] = data;
+        } else {
+          throw new Error("Já existe um aluno com este CGM.");
+        }
+      } else {
+        alunos.push(data);
+      }
+      persist();
+      renderTabela($("#busca").value);
+    }
+
+    function removeAluno(id) {
+      if (!confirm("Excluir este aluno?")) return;
+      alunos = alunos.filter(a => a.id !== id);
+      persist();
+      renderTabela($("#busca").value);
+    }
+
+    function startEdit(id) {
+      const a = alunos.find(x => x.id === id);
+      if (!a) return;
+      $("#editingId").value = a.id;
+      $("#cgm").value = a.cgm;
+      $("#nome").value = a.nome;
+      $("#aulas").value = a.aulas;
+      $("#faltas").value = a.faltas;
+      $("#submitBtn").textContent = "Salvar alterações";
+      $("#cancelEdit").hidden = false;
+      $("#cgm").focus();
+    }
+
+    function cancelEdit() {
+      $("#editingId").value = "";
+      $("#alunoForm").reset();
+      $("#aulas").value = 0;
+      $("#faltas").value = 0;
+      $("#submitBtn").textContent = "Adicionar aluno";
+      $("#cancelEdit").hidden = true;
+    }
+
+    function persist() {
+      storage.set("mathClass:alunos", alunos);
+      storage.set("mathClass:limite", limite);
+    }
+
+    // ====== Eventos ======
+    $("#configForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const novo = Number($("#limiteFreq").value);
+      if (Number.isNaN(novo) || novo < 0 || novo > 100) {
+        alert("Informe um limite entre 0 e 100.");
+        $("#limiteFreq").value = limite;
+        return;
+      }
+      limite = novo;
+      persist();
+      renderTabela($("#busca").value);
+    });
+
+    $("#alunoForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const id = $("#editingId").value || crypto.randomUUID();
+      const cgm = $("#cgm").value.trim();
+      const nome = $("#nome").value.trim();
+      const aulas = Number($("#aulas").value);
+      const faltas = Number($("#faltas").value);
+
+      if (!cgm || !nome) return alert("Preencha CGM e Nome.");
+      if (!Number.isInteger(aulas) || aulas < 0) return alert("Aulas dadas deve ser um inteiro ≥ 0.");
+      if (!Number.isInteger(faltas) || faltas < 0) return alert("Faltas deve ser um inteiro ≥ 0.");
+      if (faltas > aulas) return alert("Faltas não podem exceder as aulas dadas.");
+
+      const data = { id, cgm, nome, aulas, faltas };
+      try {
+        upsertAluno(data);
+        cancelEdit();
+      } catch (err) {
+        alert(err.message || "Erro ao salvar.");
+      }
+    });
+
+    $("#cancelEdit").addEventListener("click", cancelEdit);
+
+    $("#busca").addEventListener("input", (e) => {
+      renderTabela(e.target.value);
+    });
+
+    $("#exportCsv").addEventListener("click", () => {
+      if (!alunos.length) return alert("Nada para exportar.");
+      const header = ["CGM","Nome","Aulas","Faltas","Presenças","%Presenças","%Faltas","Situação"];
+      const rows = alunos.map(a => {
+        const c = calcular(a);
+        return [
+          a.cgm,
+          a.nome,
+          a.aulas,
+          a.faltas,
+          c.presencas,
+          c.pctPresenca.toFixed(2).replace(".", ","),
+          c.pctFaltas.toFixed(2).replace(".", ","),
+          c.situacao
+        ];
+      });
+      const csv = [header, ...rows].map(r => r.map(val => `"${String(val).replace(/"/g,'""')}"`).join(";")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = el("a", { href: url, download: "math-class-frequencia.csv" });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    $("#clearAll").addEventListener("click", () => {
+      if (!alunos.length) return;
+      if (!confirm("Apagar todos os alunos e redefinir?")) return;
+      alunos = [];
+      persist();
+      renderTabela($("#busca").value);
+    });
+
+    // Render inicial
+    renderTabela();
+  </script>
+</body>
+</html>
